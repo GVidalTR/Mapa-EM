@@ -249,6 +249,11 @@ body {
   font-size: 0.8rem;
 }
 
+.comparable-item__meta--em {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .marker-label {
   width: 36px;
   height: 36px;

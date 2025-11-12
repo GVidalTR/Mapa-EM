@@ -77,11 +77,15 @@ function handleFileSelect(event) {
     try {
       const buffer = new Uint8Array(ev.target.result);
       const workbook = XLSX.read(buffer, { type: 'array' });
-      const data = extractComparables(workbook);
-      if (!data.length) {
+      const rows = extractComparables(workbook);
+      if (!rows.length) {
         throw new Error('No se encontraron registros con coordenadas válidas.');
       }
-      renderComparables(data);
+      const aggregated = aggregateComparables(rows);
+      if (!aggregated.length) {
+        throw new Error('No se pudo generar la información de los comparables.');
+      }
+      renderComparables(aggregated);
       showProgress('Listo', 100);
       setTimeout(() => hideProgress(), 600);
     } catch (error) {
@@ -138,6 +142,8 @@ function normaliseRow(row, index) {
     `Comparable ${index + 1}`;
   const typology = getValue(keyMap, FIELD_ALIASES.typology, '');
   const link = getValue(keyMap, FIELD_ALIASES.link, '');
+  const vrmRaw = getValue(keyMap, FIELD_ALIASES.vrm, '');
+  const vrmNumber = parseNumber(vrmRaw);
 
   return {
     index,
@@ -147,13 +153,84 @@ function normaliseRow(row, index) {
     address: getValue(keyMap, FIELD_ALIASES.address, ''),
     units: getValue(keyMap, FIELD_ALIASES.units, ''),
     price: getValue(keyMap, FIELD_ALIASES.price, ''),
-    vrm: getValue(keyMap, FIELD_ALIASES.vrm, ''),
+    vrm: vrmRaw,
+    vrmNumber,
     dorms: getValue(keyMap, FIELD_ALIASES.dorms, ''),
     link,
     typology,
     floor: getValue(keyMap, FIELD_ALIASES.floor, ''),
     raw: row
   };
+}
+
+function aggregateComparables(rows) {
+  const groups = new Map();
+
+  rows.forEach((row) => {
+    const key = row.ref;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        ref: row.ref,
+        promotion: row.promotion || '',
+        address: row.address || '',
+        typology: row.typology || '',
+        units: row.units || '',
+        price: row.price || '',
+        dorms: row.dorms || '',
+        floor: row.floor || '',
+        link: row.link || '',
+        coordinatesSum: [...row.coordinates],
+        coordinatesCount: 1,
+        vrmSum: Number.isFinite(row.vrmNumber) ? row.vrmNumber : 0,
+        vrmCount: Number.isFinite(row.vrmNumber) ? 1 : 0,
+        rows: [row],
+        firstIndex: row.index
+      });
+      return;
+    }
+
+    const group = groups.get(key);
+    group.rows.push(row);
+    group.coordinatesSum[0] += row.coordinates[0];
+    group.coordinatesSum[1] += row.coordinates[1];
+    group.coordinatesCount += 1;
+
+    if (Number.isFinite(row.vrmNumber)) {
+      group.vrmSum += row.vrmNumber;
+      group.vrmCount += 1;
+    }
+
+    if (!group.promotion && row.promotion) group.promotion = row.promotion;
+    if (!group.address && row.address) group.address = row.address;
+    if (!group.typology && row.typology) group.typology = row.typology;
+    if (!group.units && row.units) group.units = row.units;
+    if (!group.price && row.price) group.price = row.price;
+    if (!group.dorms && row.dorms) group.dorms = row.dorms;
+    if (!group.floor && row.floor) group.floor = row.floor;
+    if (!group.link && row.link) group.link = row.link;
+  });
+
+  return Array.from(groups.values())
+    .sort((a, b) => a.firstIndex - b.firstIndex)
+    .map((group) => ({
+      ref: group.ref,
+      promotion: group.promotion,
+      address: group.address,
+      typology: group.typology,
+      units: group.units,
+      price: group.price,
+      dorms: group.dorms,
+      floor: group.floor,
+      link: group.link,
+      coordinates: [
+        group.coordinatesSum[0] / group.coordinatesCount,
+        group.coordinatesSum[1] / group.coordinatesCount
+      ],
+      averageVrm: group.vrmCount ? group.vrmSum / group.vrmCount : null,
+      vrmSamples: group.vrmCount,
+      totalRows: group.rows.length,
+      rows: group.rows
+    }));
 }
 
 function parseCoordinates(value) {
@@ -276,10 +353,17 @@ function buildPopupContent(item) {
     `<strong>${escapeHtml(item.ref)}</strong>`,
     item.address ? escapeHtml(item.address) : null,
     item.promotion ? `<em>${escapeHtml(item.promotion)}</em>` : null,
+    item.averageVrm !== null
+      ? `<span class="popup__detail"><strong>Promedio VRM SCIC:</strong> ${escapeHtml(
+          formatNumber(item.averageVrm)
+        )}</span>`
+      : null,
+    item.vrmSamples
+      ? `<span class="popup__detail"><strong>Muestras VRM:</strong> ${item.vrmSamples}</span>`
+      : null,
     buildPopupDetail('Tipología', item.typology),
     buildPopupDetail('Unidades', item.units),
     buildPopupDetail('PVP', item.price),
-    buildPopupDetail('VRM SCIC', item.vrm),
     buildPopupDetail('Dormitorios', item.dorms),
     buildPopupDetail('Planta', item.floor),
     item.link
@@ -301,7 +385,14 @@ function buildComparableListItem(item, idx) {
   element.className = 'comparable-item';
   element.innerHTML = `
     <span class="comparable-item__title">${idx + 1}. ${escapeHtml(item.ref)}</span>
-    <span class="comparable-item__meta">${escapeHtml(item.promotion || 'Sin promoción')}</span>
+    <span class="comparable-item__meta">${escapeHtml(
+      item.promotion || 'Sin promoción'
+    )}</span>
+    <span class="comparable-item__meta comparable-item__meta--em">${
+      item.averageVrm !== null
+        ? `Promedio VRM SCIC: ${escapeHtml(formatNumber(item.averageVrm))}`
+        : 'Sin datos de VRM'
+    }</span>
   `;
 
   element.addEventListener('click', () => {
@@ -325,9 +416,13 @@ function buildSummaryCard(template, item, idx) {
   addDefinition(dl, 'Tipología', item.typology);
   addDefinition(dl, 'Unidades', item.units);
   addDefinition(dl, 'PVP', item.price);
-  addDefinition(dl, 'VRM SCIC', item.vrm);
+  if (item.averageVrm !== null) {
+    addDefinition(dl, 'Promedio VRM SCIC', formatNumber(item.averageVrm));
+  }
+  addDefinition(dl, 'Muestras VRM', item.vrmSamples || '0');
   addDefinition(dl, 'Dormitorios', item.dorms);
   addDefinition(dl, 'Planta', item.floor);
+  addDefinition(dl, 'Registros asociados', item.totalRows);
 
   const link = node.querySelector('.summary-card__link');
   if (item.link) {
@@ -419,6 +514,36 @@ function escapeHtml(value) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function parseNumber(value) {
+  if (value === undefined || value === null) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+
+  const cleaned = text.replace(/[^0-9.,-]/g, '').replace(/\s+/g, '');
+  if (!cleaned) return null;
+
+  const lastComma = cleaned.lastIndexOf(',');
+  const lastDot = cleaned.lastIndexOf('.');
+  let normalised = cleaned;
+
+  if (lastComma > lastDot) {
+    normalised = cleaned.replace(/\./g, '').replace(',', '.');
+  } else {
+    normalised = cleaned.replace(/,/g, '');
+  }
+
+  const number = Number(normalised);
+  return Number.isFinite(number) ? number : null;
+}
+
+function formatNumber(value) {
+  if (!Number.isFinite(value)) return '';
+  return new Intl.NumberFormat('es-ES', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value);
 }
 
 window.addEventListener('resize', () => {

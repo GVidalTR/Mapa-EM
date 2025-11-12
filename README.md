@@ -10,8 +10,9 @@ mapa interactivo a partir de un Excel.
    `EEMM` con las columnas `COORD`, `Promoción`, `dirección`, `unidades`, `pvp`,
    `VRM SCIC`, `nº dorm`, `Ref`, `Link`, `Tipología` y `planta`.
 3. Mientras se procesa el archivo verás una barra de progreso. Al finalizar, los
-   comparables se mostrarán como marcadores sobre el mapa y como tarjetas de
-   resumen fuera del mapa.
+   registros se agrupan por el código de comparable (`Ref`), se calcula el
+   promedio unitario de `VRM SCIC` para cada grupo y se muestran los resultados
+   como marcadores sobre el mapa y como tarjetas de resumen fuera del mapa.
 4. Usa la lista lateral para centrar el mapa en cualquier comparable o pulsa
    **«Limpiar»** para volver al estado inicial.
 
