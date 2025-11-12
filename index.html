@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mapa EM</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-1AithKmPjJc9+1zZMwM0uRVRRZ1p2EyO0pRBvQ74o4A="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <section class="panel">
+          <h1>📂 Cargar archivo Excel</h1>
+          <p class="hint">
+            Selecciona un archivo <strong>.xlsx</strong> con la hoja
+            <strong>EEMM</strong> y columnas:
+            <code>COORD</code>, <code>Promoción</code>, <code>dirección</code>,
+            <code>unidades</code>, <code>pvp</code>, <code>VRM SCIC</code>,
+            <code>nº dorm</code>, <code>Ref</code>, <code>Link</code>,
+            <code>Tipología</code>, <code>planta</code>.
+          </p>
+          <div class="file-input">
+            <label for="file" class="button">Seleccionar archivo</label>
+            <input id="file" type="file" accept=".xlsx,.xls" />
+            <button id="clear-btn" class="button button--ghost" type="button">
+              Limpiar
+            </button>
+          </div>
+          <div id="progress" class="progress" hidden>
+            <div class="progress__label">Leyendo archivo… <span>0%</span></div>
+            <div class="progress__bar">
+              <div class="progress__bar-fill" style="width: 0%"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" id="selection-panel">
+          <h2>📊 Selección de comparables</h2>
+          <p id="summary-count" class="hint">No hay comparables cargados.</p>
+          <div id="comparable-list" class="comparable-list"></div>
+        </section>
+      </aside>
+
+      <main class="content">
+        <div id="map" class="map" role="presentation" aria-label="Mapa interactivo"></div>
+        <section class="summary" id="summary-cards" aria-live="polite"></section>
+      </main>
+    </div>
+
+    <template id="card-template">
+      <article class="summary-card">
+        <header class="summary-card__header">
+          <h3 class="summary-card__title"></h3>
+          <p class="summary-card__subtitle"></p>
+        </header>
+        <dl class="summary-card__details"></dl>
+        <footer class="summary-card__footer">
+          <a class="summary-card__link" href="#" target="_blank" rel="noopener">Ver ficha</a>
+        </footer>
+      </article>
+    </template>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-SmHgwlq2D7L0fL2R9gWZ9jRGi6QwGx8GaR/+q0aoC0w="
+      crossorigin=""
+    ></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="script.js" type="module"></script>
+  </body>
+</html>
