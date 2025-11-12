@@ -6,15 +6,22 @@ const INITIAL_VIEW = {
 const map = L.map('map', {
   zoomSnap: 0.5,
   minZoom: 5,
-  maxZoom: 18
+  maxZoom: 19
 }).setView(INITIAL_VIEW.center, INITIAL_VIEW.zoom);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
   attribution:
-    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  subdomains: 'abcd',
+  maxZoom: 19,
+  detectRetina: true
 }).addTo(map);
 
 const markersLayer = L.layerGroup().addTo(map);
+
+map.whenReady(() => {
+  map.invalidateSize();
+});
 
 const fileInput = document.getElementById('file');
 const clearButton = document.getElementById('clear-btn');
