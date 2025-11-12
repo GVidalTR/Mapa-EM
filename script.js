@@ -1,0 +1,551 @@
+const INITIAL_VIEW = {
+  center: [41.725, 1.821],
+  zoom: 8
+};
+
+const map = L.map('map', {
+  zoomSnap: 0.5,
+  minZoom: 5,
+  maxZoom: 19
+}).setView(INITIAL_VIEW.center, INITIAL_VIEW.zoom);
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  attribution:
+    '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  subdomains: 'abcd',
+  maxZoom: 19,
+  detectRetina: true
+}).addTo(map);
+
+const markersLayer = L.layerGroup().addTo(map);
+
+map.whenReady(() => {
+  map.invalidateSize();
+});
+
+const fileInput = document.getElementById('file');
+const clearButton = document.getElementById('clear-btn');
+const progress = document.getElementById('progress');
+const progressLabel = progress.querySelector('.progress__label');
+const progressPercent = progress.querySelector('span');
+const progressBarFill = progress.querySelector('.progress__bar-fill');
+const progressMessageNode = progressLabel.childNodes[0];
+const summaryCards = document.getElementById('summary-cards');
+const summaryCount = document.getElementById('summary-count');
+const comparableList = document.getElementById('comparable-list');
+
+const comparables = [];
+
+const FIELD_ALIASES = {
+  coordinates: ['coord', 'coordenadas', 'coordenadagps', 'coordenadasgps', 'latlng', 'latitudlongitud'],
+  promotion: ['promocion', 'promoción', 'proyecto', 'nombrepromocion', 'promocionvivienda'],
+  address: ['direccion', 'dirección', 'dir', 'domicilio', 'ubicacion'],
+  units: ['unidades', 'unidad', 'numunidades', 'nunidades', 'nºunidades', 'nviviendas', 'viviendas'],
+  price: ['pvp', 'precio', 'precioventa', 'precio_venta', 'preciomedio'],
+  vrm: ['vrmscic', 'vrm', 'valoracion', 'valoracionscic'],
+  dorms: ['ndorm', 'ndormitorios', 'dormitorios', 'habitaciones', 'numerodormitorios'],
+  ref: ['ref', 'referencia', 'referenciainterna', 'id', 'codigo', 'codigoreferencia'],
+  link: ['link', 'url', 'enlace', 'ficha'],
+  typology: ['tipologia', 'tipología', 'tipo', 'tipopromocion', 'tipoproducto'],
+  floor: ['planta', 'nivel', 'altura']
+};
+
+const LAT_ALIASES = ['latitud', 'lat', 'y'];
+const LNG_ALIASES = ['longitud', 'lng', 'lon', 'long', 'x'];
+
+fileInput.addEventListener('change', handleFileSelect);
+clearButton.addEventListener('click', resetView);
+
+function handleFileSelect(event) {
+  const [file] = event.target.files;
+  if (!file) {
+    return;
+  }
+
+  resetData();
+  showProgress('Leyendo archivo…', 2);
+
+  const reader = new FileReader();
+  reader.onprogress = (ev) => {
+    if (!ev.lengthComputable) return;
+    const percent = Math.round((ev.loaded / ev.total) * 60);
+    showProgress('Leyendo archivo…', Math.min(percent, 60));
+  };
+
+  reader.onload = (ev) => {
+    showProgress('Procesando datos…', 75);
+    try {
+      const buffer = new Uint8Array(ev.target.result);
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const rows = extractComparables(workbook);
+      if (!rows.length) {
+        throw new Error('No se encontraron registros con coordenadas válidas.');
+      }
+      const aggregated = aggregateComparables(rows);
+      if (!aggregated.length) {
+        throw new Error('No se pudo generar la información de los comparables.');
+      }
+      renderComparables(aggregated);
+      showProgress('Listo', 100);
+      setTimeout(() => hideProgress(), 600);
+    } catch (error) {
+      console.error(error);
+      alert(
+        'No se pudo leer el archivo. Comprueba que existe la hoja "EEMM" (o la primera hoja) y que hay columnas con coordenadas válidas (COORD, Latitud/Longitud, etc.).'
+      );
+      hideProgress();
+    }
+  };
+
+  reader.onerror = () => {
+    alert('Ocurrió un error al leer el archivo.');
+    hideProgress();
+  };
+
+  reader.readAsArrayBuffer(file);
+}
+
+function extractComparables(workbook) {
+  const sheetName =
+    workbook.SheetNames.find((name) => normaliseKey(name) === 'eemm') ?? workbook.SheetNames[0];
+  const sheet = workbook.Sheets[sheetName];
+  if (!sheet) {
+    return [];
+  }
+
+  const raw = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
+  return raw
+    .map((row, index) => normaliseRow(row, index))
+    .filter((row) => row !== null);
+}
+
+function normaliseRow(row, index) {
+  const keyMap = buildKeyMap(row);
+
+  const coordinatesValue = getValue(keyMap, FIELD_ALIASES.coordinates);
+  let coordinates = parseCoordinates(coordinatesValue);
+
+  if (!coordinates) {
+    const lat = getValue(keyMap, LAT_ALIASES);
+    const lng = getValue(keyMap, LNG_ALIASES);
+    if (lat !== undefined && lat !== '' && lng !== undefined && lng !== '') {
+      coordinates = parseCoordinates(`${lat} ${lng}`);
+    }
+  }
+
+  if (!coordinates) {
+    return null;
+  }
+
+  const promotion = getValue(keyMap, FIELD_ALIASES.promotion, '');
+  const ref = getValue(keyMap, FIELD_ALIASES.ref, `Comparable ${index + 1}`) ||
+    `Comparable ${index + 1}`;
+  const typology = getValue(keyMap, FIELD_ALIASES.typology, '');
+  const link = getValue(keyMap, FIELD_ALIASES.link, '');
+  const vrmRaw = getValue(keyMap, FIELD_ALIASES.vrm, '');
+  const vrmNumber = parseNumber(vrmRaw);
+
+  return {
+    index,
+    coordinates,
+    ref,
+    promotion,
+    address: getValue(keyMap, FIELD_ALIASES.address, ''),
+    units: getValue(keyMap, FIELD_ALIASES.units, ''),
+    price: getValue(keyMap, FIELD_ALIASES.price, ''),
+    vrm: vrmRaw,
+    vrmNumber,
+    dorms: getValue(keyMap, FIELD_ALIASES.dorms, ''),
+    link,
+    typology,
+    floor: getValue(keyMap, FIELD_ALIASES.floor, ''),
+    raw: row
+  };
+}
+
+function aggregateComparables(rows) {
+  const groups = new Map();
+
+  rows.forEach((row) => {
+    const key = row.ref;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        ref: row.ref,
+        promotion: row.promotion || '',
+        address: row.address || '',
+        typology: row.typology || '',
+        units: row.units || '',
+        price: row.price || '',
+        dorms: row.dorms || '',
+        floor: row.floor || '',
+        link: row.link || '',
+        coordinatesSum: [...row.coordinates],
+        coordinatesCount: 1,
+        vrmSum: Number.isFinite(row.vrmNumber) ? row.vrmNumber : 0,
+        vrmCount: Number.isFinite(row.vrmNumber) ? 1 : 0,
+        rows: [row],
+        firstIndex: row.index
+      });
+      return;
+    }
+
+    const group = groups.get(key);
+    group.rows.push(row);
+    group.coordinatesSum[0] += row.coordinates[0];
+    group.coordinatesSum[1] += row.coordinates[1];
+    group.coordinatesCount += 1;
+
+    if (Number.isFinite(row.vrmNumber)) {
+      group.vrmSum += row.vrmNumber;
+      group.vrmCount += 1;
+    }
+
+    if (!group.promotion && row.promotion) group.promotion = row.promotion;
+    if (!group.address && row.address) group.address = row.address;
+    if (!group.typology && row.typology) group.typology = row.typology;
+    if (!group.units && row.units) group.units = row.units;
+    if (!group.price && row.price) group.price = row.price;
+    if (!group.dorms && row.dorms) group.dorms = row.dorms;
+    if (!group.floor && row.floor) group.floor = row.floor;
+    if (!group.link && row.link) group.link = row.link;
+  });
+
+  return Array.from(groups.values())
+    .sort((a, b) => a.firstIndex - b.firstIndex)
+    .map((group) => ({
+      ref: group.ref,
+      promotion: group.promotion,
+      address: group.address,
+      typology: group.typology,
+      units: group.units,
+      price: group.price,
+      dorms: group.dorms,
+      floor: group.floor,
+      link: group.link,
+      coordinates: [
+        group.coordinatesSum[0] / group.coordinatesCount,
+        group.coordinatesSum[1] / group.coordinatesCount
+      ],
+      averageVrm: group.vrmCount ? group.vrmSum / group.vrmCount : null,
+      vrmSamples: group.vrmCount,
+      totalRows: group.rows.length,
+      rows: group.rows
+    }));
+}
+
+function parseCoordinates(value) {
+  if (!value) return null;
+
+  const text = String(value)
+    .replace(/[;\t]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  const matches = text.match(/[-+]?\d+(?:[.,]\d+)?/g);
+  if (!matches || matches.length < 2) {
+    return null;
+  }
+
+  const [latRaw, lngRaw] = matches;
+  const lat = Number(latRaw.replace(',', '.'));
+  const lng = Number(lngRaw.replace(',', '.'));
+
+  if (
+    !Number.isFinite(lat) ||
+    !Number.isFinite(lng) ||
+    Math.abs(lat) > 90 ||
+    Math.abs(lng) > 180
+  ) {
+    return null;
+  }
+
+  return [lat, lng];
+}
+
+function buildKeyMap(row) {
+  const map = new Map();
+  Object.entries(row).forEach(([key, value]) => {
+    const normalised = normaliseKey(key);
+    if (!normalised) return;
+    if (!map.has(normalised) || (map.get(normalised) === '' && value !== '')) {
+      map.set(normalised, value);
+    }
+  });
+  return map;
+}
+
+function getValue(map, aliases, fallback = undefined) {
+  if (!Array.isArray(aliases)) {
+    aliases = [aliases];
+  }
+
+  for (const alias of aliases) {
+    const key = normaliseKey(alias);
+    if (map.has(key)) {
+      const value = map.get(key);
+      if (value !== undefined && value !== null && value !== '') {
+        return value;
+      }
+    }
+  }
+
+  return fallback;
+}
+
+function normaliseKey(value) {
+  if (value === undefined || value === null) return '';
+  return String(value)
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function renderComparables(data) {
+  comparables.length = 0;
+  markersLayer.clearLayers();
+  comparableList.innerHTML = '';
+  summaryCards.innerHTML = '';
+
+  const bounds = [];
+  const template = document.getElementById('card-template');
+
+  data.forEach((item, idx) => {
+    const marker = createMarker(item, idx + 1);
+    marker.addTo(markersLayer);
+    bounds.push(item.coordinates);
+
+    const comparable = { ...item, marker };
+    comparables.push(comparable);
+
+    const listItem = buildComparableListItem(comparable, idx);
+    comparableList.appendChild(listItem);
+
+    const card = buildSummaryCard(template, comparable, idx);
+    summaryCards.appendChild(card);
+  });
+
+  updateSummaryCount(data.length);
+
+  if (bounds.length > 1) {
+    map.fitBounds(bounds, { padding: [40, 40] });
+  } else if (bounds.length === 1) {
+    map.setView(bounds[0], 13);
+  }
+}
+
+function createMarker(item, order) {
+  const icon = L.divIcon({
+    className: 'custom-marker',
+    html: `<div class="marker-label">${order}</div>`,
+    iconSize: [36, 46],
+    iconAnchor: [18, 46]
+  });
+
+  const marker = L.marker(item.coordinates, { icon });
+  marker.bindPopup(buildPopupContent(item));
+  return marker;
+}
+
+function buildPopupContent(item) {
+  const lines = [
+    `<strong>${escapeHtml(item.ref)}</strong>`,
+    item.address ? escapeHtml(item.address) : null,
+    item.promotion ? `<em>${escapeHtml(item.promotion)}</em>` : null,
+    item.averageVrm !== null
+      ? `<span class="popup__detail"><strong>Promedio VRM SCIC:</strong> ${escapeHtml(
+          formatNumber(item.averageVrm)
+        )}</span>`
+      : null,
+    item.vrmSamples
+      ? `<span class="popup__detail"><strong>Muestras VRM:</strong> ${item.vrmSamples}</span>`
+      : null,
+    buildPopupDetail('Tipología', item.typology),
+    buildPopupDetail('Unidades', item.units),
+    buildPopupDetail('PVP', item.price),
+    buildPopupDetail('Dormitorios', item.dorms),
+    buildPopupDetail('Planta', item.floor),
+    item.link
+      ? `<a href="${escapeHtml(item.link)}" target="_blank" rel="noopener">Abrir ficha</a>`
+      : null
+  ].filter(Boolean);
+
+  return `<div class="popup">${lines.join('<br>')}</div>`;
+}
+
+function buildPopupDetail(label, value) {
+  if (value === undefined || value === null || value === '') return null;
+  return `<span class="popup__detail"><strong>${label}:</strong> ${escapeHtml(value)}</span>`;
+}
+
+function buildComparableListItem(item, idx) {
+  const element = document.createElement('button');
+  element.type = 'button';
+  element.className = 'comparable-item';
+  element.innerHTML = `
+    <span class="comparable-item__title">${idx + 1}. ${escapeHtml(item.ref)}</span>
+    <span class="comparable-item__meta">${escapeHtml(
+      item.promotion || 'Sin promoción'
+    )}</span>
+    <span class="comparable-item__meta comparable-item__meta--em">${
+      item.averageVrm !== null
+        ? `Promedio VRM SCIC: ${escapeHtml(formatNumber(item.averageVrm))}`
+        : 'Sin datos de VRM'
+    }</span>
+  `;
+
+  element.addEventListener('click', () => {
+    focusComparable(item, element);
+  });
+
+  item.marker.on('click', () => {
+    setActiveComparable(element);
+  });
+
+  return element;
+}
+
+function buildSummaryCard(template, item, idx) {
+  const node = template.content.firstElementChild.cloneNode(true);
+  node.querySelector('.summary-card__title').textContent = `${idx + 1}. ${item.ref}`;
+  node.querySelector('.summary-card__subtitle').textContent = item.promotion || 'Sin promoción';
+
+  const dl = node.querySelector('.summary-card__details');
+  addDefinition(dl, 'Dirección', item.address);
+  addDefinition(dl, 'Tipología', item.typology);
+  addDefinition(dl, 'Unidades', item.units);
+  addDefinition(dl, 'PVP', item.price);
+  if (item.averageVrm !== null) {
+    addDefinition(dl, 'Promedio VRM SCIC', formatNumber(item.averageVrm));
+  }
+  addDefinition(dl, 'Muestras VRM', item.vrmSamples || '0');
+  addDefinition(dl, 'Dormitorios', item.dorms);
+  addDefinition(dl, 'Planta', item.floor);
+  addDefinition(dl, 'Registros asociados', item.totalRows);
+
+  const link = node.querySelector('.summary-card__link');
+  if (item.link) {
+    link.href = item.link;
+  } else {
+    link.href = '#';
+    link.textContent = 'Sin enlace disponible';
+    link.classList.add('is-disabled');
+    link.addEventListener('click', (event) => event.preventDefault());
+  }
+
+  node.addEventListener('mouseenter', () => {
+    item.marker.openPopup();
+  });
+
+  node.addEventListener('mouseleave', () => {
+    item.marker.closePopup();
+  });
+
+  return node;
+}
+
+function addDefinition(dl, term, value) {
+  if (value === undefined || value === null || value === '') return;
+  const dt = document.createElement('dt');
+  dt.textContent = term;
+  const dd = document.createElement('dd');
+  dd.textContent = value;
+  dl.append(dt, dd);
+}
+
+function focusComparable(item, element) {
+  map.setView(item.coordinates, Math.max(map.getZoom(), 14));
+  item.marker.openPopup();
+  setActiveComparable(element);
+}
+
+function setActiveComparable(element) {
+  document
+    .querySelectorAll('.comparable-item.is-active')
+    .forEach((node) => node.classList.remove('is-active'));
+  element.classList.add('is-active');
+}
+
+function updateSummaryCount(count) {
+  if (!count) {
+    summaryCount.textContent = 'No hay comparables cargados.';
+  } else {
+    summaryCount.textContent = `${count} comparables cargados.`;
+  }
+}
+
+function resetData() {
+  comparables.length = 0;
+  markersLayer.clearLayers();
+  comparableList.innerHTML = '';
+  summaryCards.innerHTML = '';
+  updateSummaryCount(0);
+}
+
+function resetView() {
+  fileInput.value = '';
+  resetData();
+  map.setView(INITIAL_VIEW.center, INITIAL_VIEW.zoom);
+  hideProgress();
+}
+
+function showProgress(label, percent) {
+  progress.hidden = false;
+  if (progressMessageNode) {
+    progressMessageNode.textContent = `${label} `;
+  }
+  progressPercent.textContent = `${Math.max(0, Math.min(percent, 100))}%`;
+  progressBarFill.style.width = `${percent}%`;
+}
+
+function hideProgress() {
+  progress.hidden = true;
+  progressBarFill.style.width = '0%';
+  if (progressMessageNode) {
+    progressMessageNode.textContent = 'Leyendo archivo… ';
+  }
+  progressPercent.textContent = '0%';
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+function parseNumber(value) {
+  if (value === undefined || value === null) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+
+  const cleaned = text.replace(/[^0-9.,-]/g, '').replace(/\s+/g, '');
+  if (!cleaned) return null;
+
+  const lastComma = cleaned.lastIndexOf(',');
+  const lastDot = cleaned.lastIndexOf('.');
+  let normalised = cleaned;
+
+  if (lastComma > lastDot) {
+    normalised = cleaned.replace(/\./g, '').replace(',', '.');
+  } else {
+    normalised = cleaned.replace(/,/g, '');
+  }
+
+  const number = Number(normalised);
+  return Number.isFinite(number) ? number : null;
+}
+
+function formatNumber(value) {
+  if (!Number.isFinite(value)) return '';
+  return new Intl.NumberFormat('es-ES', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value);
+}
+
+window.addEventListener('resize', () => {
+  map.invalidateSize();
+});
