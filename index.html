@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mapa de Promociones</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-sA+4psmU5M47H98qHnEkGhUjaHW3rQKUgFhN0wBTwY8=" crossorigin="" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="theme-light">
+  <div class="app-shell">
+    <main class="map-area">
+      <div id="map" role="application" aria-label="Mapa de comparables"></div>
+      <div class="map-toolbar">
+        <button id="fitBounds" type="button">Centrar comparables</button>
+        <div class="map-toolbar__group">
+          <label class="switch">
+            <input id="toggleMarkers" type="checkbox" checked />
+            <span>Marcadores</span>
+          </label>
+          <label class="switch">
+            <input id="toggleLabels" type="checkbox" checked />
+            <span>Etiquetas</span>
+          </label>
+        </div>
+      </div>
+    </main>
+    <aside class="sidebar" aria-label="Panel de controles">
+      <section class="panel" aria-labelledby="uploadTitle">
+        <header class="panel__header">
+          <h2 id="uploadTitle">Cargar archivo Excel</h2>
+        </header>
+        <div class="panel__body">
+          <label class="upload">
+            <input id="fileInput" type="file" accept=".xlsx,.xls" />
+            <span id="fileLabel">Seleccionar archivo</span>
+          </label>
+          <button id="clearData" type="button" class="ghost" disabled>Limpiar</button>
+          <div id="uploadStatus" class="status" role="status" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="statsTitle">
+        <header class="panel__header">
+          <h2 id="statsTitle">Estadísticas</h2>
+        </header>
+        <div class="panel__body stats">
+          <div>
+            <span class="stats__label">Comparables</span>
+            <strong id="statComparables">0</strong>
+          </div>
+          <div>
+            <span class="stats__label">Filtrados</span>
+            <strong id="statFiltered">0</strong>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="filtersTitle">
+        <header class="panel__header">
+          <h2 id="filtersTitle">Filtros inteligentes</h2>
+          <button id="resetFilters" type="button" class="ghost" disabled>Limpiar filtros</button>
+        </header>
+        <div id="filtersContainer" class="panel__body filters"></div>
+      </section>
+
+      <section class="panel" aria-labelledby="selectionTitle">
+        <header class="panel__header">
+          <h2 id="selectionTitle">Selección de comparables</h2>
+        </header>
+        <div class="panel__body">
+          <div class="selection-controls">
+            <button id="selectAll" type="button" class="ghost" disabled>Seleccionar todo</button>
+            <button id="selectNone" type="button" class="ghost" disabled>Deseleccionar</button>
+          </div>
+          <div id="comparableList" class="comparable-list" role="listbox" aria-multiselectable="true"></div>
+        </div>
+      </section>
+
+      <section class="panel" aria-labelledby="displayTitle">
+        <header class="panel__header">
+          <h2 id="displayTitle">Modificadores visuales</h2>
+        </header>
+        <div class="panel__body display-controls">
+          <label class="control">
+            <span>Tamaño de etiquetas</span>
+            <input id="labelScale" type="range" min="60" max="160" value="100" />
+          </label>
+          <label class="control">
+            <span>Color etiquetas</span>
+            <input id="labelColor" type="color" value="#2563eb" />
+          </label>
+          <label class="control control--inline">
+            <span>Tema</span>
+            <button id="toggleTheme" type="button" class="ghost">Oscuro</button>
+          </label>
+        </div>
+      </section>
+    </aside>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-o9N1j7kGStG2z8JzWxZmf0LZbW2R6pNtG3R1Yyp0D4A=" crossorigin=""></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" integrity="sha384-pEXZDVfjJfIedmHN0mdRgvz3uX2BUbQB1+Pd1LSoLeWSPGbmhKMRjp1cTKl0iQnQ" crossorigin="anonymous"></script>
+  <script src="app.js" type="module"></script>
+</body>
+</html>
