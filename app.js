@@ -341,23 +341,30 @@ function formatNumber(value) {
   return new Intl.NumberFormat('es-ES', { maximumFractionDigits: 2 }).format(value);
 }
 
+const escapeContainer = document.createElement('span');
+
+function escapeHTML(value) {
+  escapeContainer.textContent = value == null ? '' : String(value);
+  return escapeContainer.innerHTML;
+}
+
 function buildPopupContent(comparable) {
   const rows = [];
-  rows.push(`<strong>${comparable.nombre}</strong>`);
+  rows.push(`<strong>${escapeHTML(comparable.nombre)}</strong>`);
   if (comparable.promocion && comparable.promocion !== comparable.nombre) {
-    rows.push(`<div>${comparable.promocion}</div>`);
+    rows.push(`<div>${escapeHTML(comparable.promocion)}</div>`);
   }
-  rows.push(`<div><small>Código:</small> ${comparable.code}</div>`);
+  rows.push(`<div><small>Código:</small> ${escapeHTML(comparable.code)}</div>`);
   if (comparable.tipologia) {
-    rows.push(`<div><small>Tipología:</small> ${comparable.tipologia}</div>`);
+    rows.push(`<div><small>Tipología:</small> ${escapeHTML(comparable.tipologia)}</div>`);
   }
   if (comparable.planta) {
-    rows.push(`<div><small>Planta:</small> ${comparable.planta}</div>`);
+    rows.push(`<div><small>Planta:</small> ${escapeHTML(comparable.planta)}</div>`);
   }
   if (comparable.dormitorios) {
-    rows.push(`<div><small>Dormitorios:</small> ${comparable.dormitorios}</div>`);
+    rows.push(`<div><small>Dormitorios:</small> ${escapeHTML(comparable.dormitorios)}</div>`);
   }
-  rows.push(`<div><small>Muestras:</small> ${comparable.samples}</div>`);
+  rows.push(`<div><small>Muestras:</small> ${escapeHTML(comparable.samples)}</div>`);
 
   if (comparable.metrics.surface) {
     rows.push(`<div><small>Sup. media:</small> ${formatNumber(comparable.metrics.surface)} m²</div>`);
@@ -375,7 +382,8 @@ function buildPopupContent(comparable) {
 function buildLabelHTML(comparable) {
   const labelTheme = state.theme === 'dark' ? 'dark' : 'light';
   const value = comparable.metrics.unitPrice ?? comparable.metrics.totalPrice ?? null;
-  const labelText = value ? formatCurrency(value) : comparable.code;
+  const rawLabelText = value ? formatCurrency(value) : comparable.code;
+  const labelText = escapeHTML(rawLabelText);
   return `<div class="data-label" data-theme="${labelTheme}">${labelText}</div>`;
 }
 
