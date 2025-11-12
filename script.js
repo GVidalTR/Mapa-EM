@@ -36,6 +36,23 @@ const comparableList = document.getElementById('comparable-list');
 
 const comparables = [];
 
+const FIELD_ALIASES = {
+  coordinates: ['coord', 'coordenadas', 'coordenadagps', 'coordenadasgps', 'latlng', 'latitudlongitud'],
+  promotion: ['promocion', 'promoción', 'proyecto', 'nombrepromocion', 'promocionvivienda'],
+  address: ['direccion', 'dirección', 'dir', 'domicilio', 'ubicacion'],
+  units: ['unidades', 'unidad', 'numunidades', 'nunidades', 'nºunidades', 'nviviendas', 'viviendas'],
+  price: ['pvp', 'precio', 'precioventa', 'precio_venta', 'preciomedio'],
+  vrm: ['vrmscic', 'vrm', 'valoracion', 'valoracionscic'],
+  dorms: ['ndorm', 'ndormitorios', 'dormitorios', 'habitaciones', 'numerodormitorios'],
+  ref: ['ref', 'referencia', 'referenciainterna', 'id', 'codigo', 'codigoreferencia'],
+  link: ['link', 'url', 'enlace', 'ficha'],
+  typology: ['tipologia', 'tipología', 'tipo', 'tipopromocion', 'tipoproducto'],
+  floor: ['planta', 'nivel', 'altura']
+};
+
+const LAT_ALIASES = ['latitud', 'lat', 'y'];
+const LNG_ALIASES = ['longitud', 'lng', 'lon', 'long', 'x'];
+
 fileInput.addEventListener('change', handleFileSelect);
 clearButton.addEventListener('click', resetView);
 
@@ -58,7 +75,8 @@ function handleFileSelect(event) {
   reader.onload = (ev) => {
     showProgress('Procesando datos…', 75);
     try {
-      const workbook = XLSX.read(ev.target.result, { type: 'array' });
+      const buffer = new Uint8Array(ev.target.result);
+      const workbook = XLSX.read(buffer, { type: 'array' });
       const data = extractComparables(workbook);
       if (!data.length) {
         throw new Error('No se encontraron registros con coordenadas válidas.');
@@ -69,7 +87,7 @@ function handleFileSelect(event) {
     } catch (error) {
       console.error(error);
       alert(
-        'No se pudo leer el archivo. Comprueba que existe la hoja "EEMM" y que la columna COORD contiene latitud y longitud.'
+        'No se pudo leer el archivo. Comprueba que existe la hoja "EEMM" (o la primera hoja) y que hay columnas con coordenadas válidas (COORD, Latitud/Longitud, etc.).'
       );
       hideProgress();
     }
@@ -84,8 +102,8 @@ function handleFileSelect(event) {
 }
 
 function extractComparables(workbook) {
-  const sheetName = workbook.SheetNames.find((name) => name.trim().toUpperCase() === 'EEMM') ??
-    workbook.SheetNames[0];
+  const sheetName =
+    workbook.SheetNames.find((name) => normaliseKey(name) === 'eemm') ?? workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
   if (!sheet) {
     return [];
@@ -98,29 +116,42 @@ function extractComparables(workbook) {
 }
 
 function normaliseRow(row, index) {
-  const coordinates = parseCoordinates(row.COORD ?? row.Coord ?? row.coord);
+  const keyMap = buildKeyMap(row);
+
+  const coordinatesValue = getValue(keyMap, FIELD_ALIASES.coordinates);
+  let coordinates = parseCoordinates(coordinatesValue);
+
+  if (!coordinates) {
+    const lat = getValue(keyMap, LAT_ALIASES);
+    const lng = getValue(keyMap, LNG_ALIASES);
+    if (lat !== undefined && lat !== '' && lng !== undefined && lng !== '') {
+      coordinates = parseCoordinates(`${lat} ${lng}`);
+    }
+  }
+
   if (!coordinates) {
     return null;
   }
 
-  const promotion = row.Promoción || row.Promocion || '';
-  const ref = row.Ref || row.REF || `Comparable ${index + 1}`;
-  const typology = row.Tipología || row.Tipologia || '';
-  const link = row.Link || row.URL || '';
+  const promotion = getValue(keyMap, FIELD_ALIASES.promotion, '');
+  const ref = getValue(keyMap, FIELD_ALIASES.ref, `Comparable ${index + 1}`) ||
+    `Comparable ${index + 1}`;
+  const typology = getValue(keyMap, FIELD_ALIASES.typology, '');
+  const link = getValue(keyMap, FIELD_ALIASES.link, '');
 
   return {
     index,
     coordinates,
     ref,
     promotion,
-    address: row.dirección || row.Dirección || row.Direccion || '',
-    units: row.unidades || row.Unidades || '',
-    price: row.pvp || row.PVP || '',
-    vrm: row['VRM SCIC'] || row.VRMSCIC || row.VRMSCic || '',
-    dorms: row['nº dorm'] || row['nº dormitorios'] || row.dorm || '',
+    address: getValue(keyMap, FIELD_ALIASES.address, ''),
+    units: getValue(keyMap, FIELD_ALIASES.units, ''),
+    price: getValue(keyMap, FIELD_ALIASES.price, ''),
+    vrm: getValue(keyMap, FIELD_ALIASES.vrm, ''),
+    dorms: getValue(keyMap, FIELD_ALIASES.dorms, ''),
     link,
     typology,
-    floor: row.planta || row.Planta || '',
+    floor: getValue(keyMap, FIELD_ALIASES.floor, ''),
     raw: row
   };
 }
@@ -152,6 +183,46 @@ function parseCoordinates(value) {
   }
 
   return [lat, lng];
+}
+
+function buildKeyMap(row) {
+  const map = new Map();
+  Object.entries(row).forEach(([key, value]) => {
+    const normalised = normaliseKey(key);
+    if (!normalised) return;
+    if (!map.has(normalised) || (map.get(normalised) === '' && value !== '')) {
+      map.set(normalised, value);
+    }
+  });
+  return map;
+}
+
+function getValue(map, aliases, fallback = undefined) {
+  if (!Array.isArray(aliases)) {
+    aliases = [aliases];
+  }
+
+  for (const alias of aliases) {
+    const key = normaliseKey(alias);
+    if (map.has(key)) {
+      const value = map.get(key);
+      if (value !== undefined && value !== null && value !== '') {
+        return value;
+      }
+    }
+  }
+
+  return fallback;
+}
+
+function normaliseKey(value) {
+  if (value === undefined || value === null) return '';
+  return String(value)
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '');
 }
 
 function renderComparables(data) {
