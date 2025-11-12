@@ -119,16 +119,22 @@ function normaliseRow(row, index) {
 }
 
 function parseCoordinates(value) {
-  if (!value || typeof value !== 'string') return null;
-  const cleaned = value
+  if (!value) return null;
+
+  const text = String(value)
+    .replace(/[;\t]/g, ' ')
     .replace(/\s+/g, ' ')
-    .replace(/;/g, ',')
     .trim();
-  const parts = cleaned.includes(',') ? cleaned.split(',') : cleaned.split(' ');
-  const [lat, lng] = parts
-    .map((part) => part.trim())
-    .filter(Boolean)
-    .map(Number);
+
+  const matches = text.match(/[-+]?\d+(?:[.,]\d+)?/g);
+  if (!matches || matches.length < 2) {
+    return null;
+  }
+
+  const [latRaw, lngRaw] = matches;
+  const lat = Number(latRaw.replace(',', '.'));
+  const lng = Number(lngRaw.replace(',', '.'));
+
   if (
     !Number.isFinite(lat) ||
     !Number.isFinite(lng) ||
@@ -137,6 +143,7 @@ function parseCoordinates(value) {
   ) {
     return null;
   }
+
   return [lat, lng];
 }
 
